@@ -226,9 +226,45 @@ MDScreen:
 
         MDGridLayout: # buttons
             cols: 3
-            size_hint_y: 0.2
+            size_hint_y: 0.25
             spacing: dp(4)
             padding: 14, 0, 14, 0 # left, top, right, bottom
+
+            MDFillRoundFlatIconButton:
+                id: btn_draw_color
+                text: "Draw Colour"
+                text_color: 'white'
+                icon: "toggle-switch-off"
+                icon_color: "white"
+                font_size: sp(18)
+                md_bg_color: 'gray'
+                pos_hint: {"center_x": .5, "center_y": .5}
+                size_hint_x: 0.33
+                on_release: app.set_draw_color()
+
+            MDFillRoundFlatIconButton:
+                id: btn_two_pass
+                text: "Two Pass"
+                text_color: 'white'
+                icon: "toggle-switch-off"
+                icon_color: "white"
+                font_size: sp(18)
+                md_bg_color: 'gray'
+                pos_hint: {"center_x": .5, "center_y": .5}
+                size_hint_x: 0.33
+                on_release: app.set_two_pass()
+
+            MDFillRoundFlatIconButton:
+                id: btn_h264_conv
+                text: "H264 Conv"
+                text_color: 'white'
+                icon: "toggle-switch"
+                icon_color: "green"
+                font_size: sp(18)
+                md_bg_color: 'lightgreen'
+                pos_hint: {"center_x": .5, "center_y": .5}
+                size_hint_x: 0.33
+                on_release: app.set_h264_convert()
 
             MDFillRoundFlatIconButton:
                 id: btn_end_img
@@ -239,7 +275,7 @@ MDScreen:
                 font_size: sp(18)
                 md_bg_color: 'pink'
                 pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.2
+                size_hint_x: 0.33
                 on_release: app.set_end_img_color()
 
             MDFillRoundFlatIconButton:
@@ -249,7 +285,7 @@ MDScreen:
                 font_size: sp(18)
                 md_bg_color: 'orange'
                 pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.6
+                size_hint_x: 0.33
                 on_release: app.submit_sketch_req()
 
             MDFillRoundFlatIconButton:
@@ -259,5 +295,5 @@ MDScreen:
                 font_size: sp(18)
                 md_bg_color: '#333036'
                 pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.2
+                size_hint_x: 0.33
                 on_release: app.reset_all()

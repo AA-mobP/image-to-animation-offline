@@ -204,10 +204,14 @@ def draw_masked_object(
         range_h_start = selected_ind_val[1] * variables.split_len
         range_h_end = range_h_start + variables.split_len
 
-        temp_drawing = np.zeros((variables.split_len, variables.split_len, 3))
-        temp_drawing[:, :, 0] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
-        temp_drawing[:, :, 1] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
-        temp_drawing[:, :, 2] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
+        if variables.draw_color:
+            temp_drawing = variables.img[range_v_start:range_v_end, range_h_start:range_h_end].copy()
+            # Full coloring: revealed block is shown exactly as is from the original image
+        else:
+            temp_drawing = np.zeros((variables.split_len, variables.split_len, 3))
+            temp_drawing[:, :, 0] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
+            temp_drawing[:, :, 1] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
+            temp_drawing[:, :, 2] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
 
         variables.drawn_frame[range_v_start:range_v_end, range_h_start:range_h_end] = (
             temp_drawing
@@ -244,10 +248,6 @@ def draw_masked_object(
         if counter % 40 == 0:
             print("len of black indices: ", len(cut_black_indices))
 
-    if object_mask is not None:
-        variables.drawn_frame[:, :, :][object_ind] = variables.img[object_ind]
-    else:
-        variables.drawn_frame[:, :, :] = variables.img
 
 
 def draw_whiteboard_animations(
@@ -341,20 +341,46 @@ def draw_whiteboard_animations(
             skip_rate=variables.bg_object_skip_rate,
         )
     else:
-        #variables.split_len = 15
-        #variables.object_skip_rate = 8
+        # variables.split_len = 15
+        # variables.object_skip_rate = 8
         # draw the entire image without any mask
-        draw_masked_object(
-            variables=variables,
-            skip_rate=variables.object_skip_rate,
-        )
+        
+        if variables.two_pass:
+            print("Running First Pass: Lines...")
+            variables.draw_color = False
+            draw_masked_object(
+                variables=variables,
+                skip_rate=variables.object_skip_rate,
+            )
+            
+            print("Running Second Pass: Color...")
+            variables.draw_color = True
+            # Make the color pass slightly faster by increasing skip rate by ~1.5x
+            original_skip_rate = variables.object_skip_rate
+            variables.object_skip_rate = int(original_skip_rate * 1.5)
+            
+            draw_masked_object(
+                variables=variables,
+                skip_rate=variables.object_skip_rate,
+            )
+            # Restore original skip rate
+            variables.object_skip_rate = original_skip_rate
+        else:
+            draw_masked_object(
+                variables=variables,
+                skip_rate=variables.object_skip_rate,
+            )
 
-    # User can select if they want a colour image or grayscale image shown at the end
+    # Final "Cleanup" Reveal: ensures the full image is perfectly displayed before the static end frames
     if end_color:
         end_img = variables.img
     else:
         end_img = cv2.cvtColor(variables.img_thresh, cv2.COLOR_GRAY2BGR)
 
+    variables.drawn_frame[:, :, :] = end_img
+
+    # User can select if they want a colour image or grayscale image shown at the end
+    # (The end_img selection logic was already here, sticking to the single finalization)
     # Ending the video with original original image
     for i in range(variables.frame_rate * variables.end_gray_img_duration_in_sec):
         #variables.video_object.write(variables.img)
@@ -382,6 +408,8 @@ class AllVariables:
         object_skip_rate=None,
         bg_object_skip_rate=None,
         end_gray_img_duration_in_sec=None,
+        draw_color=False,
+        two_pass=False,
     ):
         self.frame_rate = frame_rate
         self.resize_wd = resize_wd
@@ -390,6 +418,8 @@ class AllVariables:
         self.object_skip_rate = object_skip_rate
         self.bg_object_skip_rate = bg_object_skip_rate
         self.end_gray_img_duration_in_sec = end_gray_img_duration_in_sec
+        self.draw_color = draw_color
+        self.two_pass = two_pass
 
 def common_divisors(num1, num2):
     """
@@ -465,71 +495,90 @@ def ffmpeg_convert(source_vid, dest_vid, platform="linux"):
 
 def initiate_sketch(
         image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path=save_path,
-        which_platform="linux", end_color=True ):
+        which_platform="linux", end_color=True, draw_color=False, two_pass=False, h264_convert=True):
+#    print(image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path)
+    
+    # making result dict
+    final_result = {"status" : False, "message" : "Initial load"}
+
+    # creating directory if not present
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    # get the current date and time
+    now = datetime.datetime.now()
+    current_time = str(now.strftime("%H%M%S"))
+    current_date = str(now.strftime("%Y%m%d"))
+    
+    if which_platform == "android":
+        video_save_name = f"vid_{current_date}_{current_time}.avi"
+    else:
+        video_save_name = f"vid_{current_date}_{current_time}.mp4"
+    
+    save_video_path = os.path.join(save_path, video_save_name)
+    ffmpeg_video_path = os.path.join(save_path, f"vid_{current_date}_{current_time}_h264.mp4")
+
+    # set platform
     global platform
     platform = which_platform
-    final_result = {"status": False, "message": "Initial load"}
+
     try:
-        image_bgr = cv2.imread(image_path)
-        mask_path = None # To be added later
-        # video save path
-        now = datetime.datetime.now()
-        current_time = str(now.strftime("%H%M%S"))
-        current_date = str(now.strftime("%Y%m%d"))
-        if platform == "android":
-            video_save_name = f"vid_{current_date}_{current_time}.avi" #mpg
-        else:
-            video_save_name = f"vid_{current_date}_{current_time}.mp4" #mp4
-        save_video_path = os.path.join(save_path, video_save_name)
-        ffmpeg_file_name = f"vid_{current_date}_{current_time}_h264.mp4"
-        ffmpeg_video_path = os.path.join(save_path, ffmpeg_file_name)
-        os.makedirs(os.path.dirname(save_video_path), exist_ok=True)
-        print("save_video_path: ", save_video_path)
-
-        # Get image width & height. If the resolution is not standard & split length is not a common divisor, get the nearest standard res
-        img_ht, img_wd = image_bgr.shape[0], image_bgr.shape[1]
+        # Load image
+        img = cv2.imread(image_path)
+        # resize image to a standard resolution
+        img_ht, img_wd = img.shape[:2]
+        
+        # Calculate new width based on aspect ratio and nearest height
+        new_img_ht = find_nearest_res(img_ht)
         aspect_ratio = img_wd / img_ht
-        img_ht = find_nearest_res(img_ht)
-        new_aspect_wd = int(img_ht * aspect_ratio)
-        img_wd = find_nearest_res(new_aspect_wd)
-        print(f"Target width: {img_wd} x height: {img_ht}")
+        new_img_wd = int(new_img_ht * aspect_ratio)
+        
+        resize_wd = find_nearest_res(new_img_wd)
+        resize_ht = new_img_ht
 
-        # constants and variables object
+        # initiate all variables object
         variables = AllVariables(
-            frame_rate = frame_rate,  # frame rate for the output video
-            resize_wd = img_wd,  # output video width
-            resize_ht = img_ht,  # output video height
-            split_len = split_len,  # the image is devided into grids. When split_len = 10, the image is devided as: img_ht/10, img_wd/10
-            object_skip_rate = object_skip_rate,  # when drawing, 8 pixels colored will be saved together in the video
-            # increase this number to make the video runtime smaller (draws faster)
-            bg_object_skip_rate = bg_object_skip_rate,  # assuming background region is larger, hence increasing the skip rate
-            end_gray_img_duration_in_sec = main_img_duration,  # the last few secs of the video, for every image will have the entire original image shown as is
+            frame_rate=frame_rate,
+            resize_wd=resize_wd,
+            resize_ht=resize_ht,
+            split_len=split_len,
+            object_skip_rate=object_skip_rate,
+            bg_object_skip_rate=bg_object_skip_rate,
+            end_gray_img_duration_in_sec=main_img_duration,
+            draw_color=draw_color,
+            two_pass=two_pass
         )
 
         # invoking the drawing function
         try:
             draw_whiteboard_animations(
-                image_bgr, mask_path, hand_path, hand_mask_path, save_video_path, variables,
+                img, None, hand_path, hand_mask_path, save_video_path, variables,
                 end_color
             )
-            try:
-                ff_stat = ffmpeg_convert(source_vid=save_video_path, dest_vid=ffmpeg_video_path, platform=platform)
-                if ff_stat:
-                    final_result = {"status": True, "message": f"{ffmpeg_video_path}"}
-                    os.unlink(save_video_path)
-                    print(f"removed raw video: {save_video_path}")
-                else:
+            if h264_convert:
+                try:
+                    ff_stat = ffmpeg_convert(source_vid=save_video_path, dest_vid=ffmpeg_video_path, platform=platform)
+                    if ff_stat:
+                        final_result = {"status": True, "message": f"{ffmpeg_video_path}"}
+                        if os.path.exists(save_video_path):
+                            os.unlink(save_video_path)
+                        print(f"removed raw video: {save_video_path}")
+                    else:
+                        final_result = {"status": True, "message": f"{save_video_path}"}
+                except Exception as e:
+                    print(f"FFMPEG Error: {e}")
                     final_result = {"status": True, "message": f"{save_video_path}"}
-            except Exception as e:
-                print(f"FFMPEG Error: {e}")
+            else:
+                print("H264 conversion skipped by user.")
                 final_result = {"status": True, "message": f"{save_video_path}"}
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in draw_whiteboard_animations: {e}")
             final_result = {"status": False, "message": f"Error: {e}"}
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in initiate_sketch: {e}")
         final_result = {"status": False, "message": f"Error: {e}"}
+    
     Clock.schedule_once(lambda dt: callback(final_result))
 
 def get_split_lens(image_path):

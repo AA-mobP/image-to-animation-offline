@@ -84,6 +84,9 @@ class DlImg2SktchApp(MDApp):
         self.theme_cls.accent_palette = "Orange"
         self.batch_process = False
         self.end_color = True
+        self.draw_color = False
+        self.two_pass = False
+        self.h264_convert = True
         self.img_file_count = 0
         self.top_menu_items = {
             "Delete old sketches": {
@@ -295,6 +298,10 @@ class DlImg2SktchApp(MDApp):
         self.image_folder = path
         self.image_path = ""
         self.batch_process = True
+        
+        # Automatically enable Draw Color for batch process
+        self.draw_color = True
+        self.update_draw_color_ui()
 
         img_box = self.root.ids.img_selector_lbl
         img_box.text = f"Selected folder: {self.image_folder}"
@@ -319,6 +326,10 @@ class DlImg2SktchApp(MDApp):
         self.image_path = path
         self.image_folder = ""
         self.batch_process = False
+        
+        # Automatically disable Draw Color for single upload
+        self.draw_color = False
+        self.update_draw_color_ui()
         api_resp = get_split_lens(path)
         split_lens = api_resp["split_lens"]
         image_details = api_resp["image_res"]
@@ -422,6 +433,11 @@ class DlImg2SktchApp(MDApp):
                 self.show_toast_msg(f"Error deleting file: {e}", is_error=True)
 
     def set_end_img_color(self):
+        # If draw_color or two_pass is enabled, we don't allow changing end_color
+        if self.draw_color or self.two_pass:
+            self.show_toast_msg("End Colour must be enabled when Draw Colour or Two Pass is active")
+            return
+
         btn_end_img = self.root.ids.btn_end_img
         if self.end_color:
             btn_end_img.icon = "toggle-switch-off"
@@ -435,6 +451,97 @@ class DlImg2SktchApp(MDApp):
             btn_end_img.text_color = "black"
             btn_end_img.md_bg_color = "pink"
             self.end_color = True
+
+    def set_draw_color(self):
+        # If two_pass is enabled, we don't allow changing draw_color manually
+        if self.two_pass:
+            self.show_toast_msg("Draw Colour is managed automatically in Two Pass mode")
+            return
+            
+        self.draw_color = not self.draw_color
+        self.update_draw_color_ui()
+
+    def set_two_pass(self):
+        self.two_pass = not self.two_pass
+        self.update_draw_color_ui()
+
+    def set_h264_convert(self):
+        btn_h264_conv = self.root.ids.btn_h264_conv
+        self.h264_convert = not self.h264_convert
+        
+        if self.h264_convert:
+            btn_h264_conv.icon = "toggle-switch"
+            btn_h264_conv.icon_color = "green"
+            btn_h264_conv.text_color = "white"
+            btn_h264_conv.md_bg_color = "lightgreen"
+        else:
+            btn_h264_conv.icon = "toggle-switch-off"
+            btn_h264_conv.icon_color = "white"
+            btn_h264_conv.text_color = "white"
+            btn_h264_conv.md_bg_color = "gray"
+
+    def update_draw_color_ui(self):
+        # Safety check if root or ids are not ready
+        if not self.root or 'btn_draw_color' not in self.root.ids:
+            return
+
+        btn_draw_color = self.root.ids.btn_draw_color
+        btn_end_img = self.root.ids.btn_end_img
+        btn_two_pass = self.root.ids.btn_two_pass
+        
+        # Reset UI states first to avoid conflicts
+        if self.two_pass:
+            # Two Pass Mode behavior
+            btn_two_pass.icon = "toggle-switch"
+            btn_two_pass.icon_color = "cyan"
+            btn_two_pass.text_color = "black"
+            btn_two_pass.md_bg_color = "lightblue"
+            
+            # In two pass mode, draw_color and end_color are forced ON internally
+            # We visually disable those buttons
+            self.draw_color = False # It will be toggled internally in sketchApi
+            self.end_color = True
+            
+            btn_draw_color.icon = "toggle-switch"
+            btn_draw_color.icon_color = "gray"
+            btn_draw_color.text_color = "gray"
+            btn_draw_color.md_bg_color = "#e0e0e0"
+            
+            btn_end_img.icon = "toggle-switch"
+            btn_end_img.icon_color = "magenta"
+            btn_end_img.text_color = "gray"
+            btn_end_img.md_bg_color = "#fbcce7"
+            
+        else:
+            # Normal Mode behavior
+            btn_two_pass.icon = "toggle-switch-off"
+            btn_two_pass.icon_color = "white"
+            btn_two_pass.text_color = "white"
+            btn_two_pass.md_bg_color = "gray"
+            
+            if self.draw_color:
+                btn_draw_color.icon = "toggle-switch"
+                btn_draw_color.icon_color = "green"
+                btn_draw_color.text_color = "black"
+                btn_draw_color.md_bg_color = "lightgreen"
+                
+                # Force end color to True and visually disable
+                self.end_color = True
+                btn_end_img.icon = "toggle-switch"
+                btn_end_img.icon_color = "magenta"
+                btn_end_img.text_color = "gray"
+                btn_end_img.md_bg_color = "#fbcce7" 
+            else:
+                btn_draw_color.icon = "toggle-switch-off"
+                btn_draw_color.icon_color = "white"
+                btn_draw_color.text_color = "white"
+                btn_draw_color.md_bg_color = "gray"
+                
+                # Re-enable end color button
+                btn_end_img.md_bg_color = "pink" if self.end_color else "gray"
+                btn_end_img.text_color = "black" if self.end_color else "white"
+                btn_end_img.icon = "toggle-switch" if self.end_color else "toggle-switch-off"
+                btn_end_img.icon_color = "magenta" if self.end_color else "white"
 
     def submit_sketch_req(self):
         player_box = self.root.ids.player_box
@@ -490,7 +597,7 @@ class DlImg2SktchApp(MDApp):
             obj_skip_rate = self.root.ids.obj_skip_rate.text if self.root.ids.obj_skip_rate.text != "" else self.obj_skip_rate
             bck_skip_rate = self.root.ids.bck_skip_rate.text if self.root.ids.bck_skip_rate.text != "" else self.bck_skip_rate
             main_img_duration = self.root.ids.main_img_duration.text if self.root.ids.main_img_duration.text != "" else self.main_img_duration
-            sketch_thread = Thread(target=initiate_sketch, args=(self.image_path, split_len, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, self.video_dir, platform, self.end_color), daemon=True)
+            sketch_thread = Thread(target=initiate_sketch, args=(self.image_path, split_len, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, self.h264_convert), daemon=True)
             sketch_thread.start()
             self.is_cv2_running = True
             player_box.clear_widgets()
@@ -503,9 +610,8 @@ class DlImg2SktchApp(MDApp):
         q_message = "start"
         for file in img_file_list:
             full_img_path = os.path.join(self.image_folder, file)
-            sketch_thread = Thread(target=initiate_sketch, args=(full_img_path, split_len, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, self.video_dir, platform, self.end_color), daemon=True)
+            sketch_thread = Thread(target=initiate_sketch, args=(full_img_path, split_len, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, self.h264_convert), daemon=True)
             sketch_thread.start()
-
             self.is_cv2_running = True
             self.batch_queue.put("start")
             while self.img_file_count >= 1:
@@ -574,7 +680,7 @@ class DlImg2SktchApp(MDApp):
             now = datetime.datetime.now()
             current_time = str(now.strftime("%H%M%S"))
             current_date = str(now.strftime("%Y%m%d"))
-            folder_zip = f"bat_{current_date}_{current_time}.zip"
+            folder_zip = f"bat _{current_date}_{current_time}.zip"
             folder_zip_full = os.path.join(self.video_dir, folder_zip) 
             from zipfile import ZipFile
             with ZipFile(folder_zip_full, "w") as zip_obj:
@@ -598,33 +704,59 @@ class DlImg2SktchApp(MDApp):
         obj_skip_rate = self.root.ids.obj_skip_rate
         bck_skip_rate = self.root.ids.bck_skip_rate
         main_img_duration = self.root.ids.main_img_duration
-        # start reset
+        btn_end_img = self.root.ids.btn_end_img
+        btn_draw_color = self.root.ids.btn_draw_color
+        btn_two_pass = self.root.ids.btn_two_pass
+        btn_h264_conv = self.root.ids.btn_h264_conv
+
+        # Reset internal states
         self.image_path = ""
         self.image_folder = ""
         self.split_len = 10
-        menu_items = []
-        self.split_len_options = MDDropdownMenu(
-            md_bg_color="#bdc6b0",
-            caller=self.split_len_drp,
-            items=menu_items,
-        )
-        self.split_len_drp.text = "speed"
+        self.end_color = True
+        self.draw_color = False
+        self.two_pass = False
+        self.h264_convert = True
+        self.batch_process = False
+        
+        # Reset UI labels
         if platform == "android":
             img_selector_lbl.text = "Use the button to select an image >"
         else:
-            img_selector_lbl.text = "Select an image file or a folder with multiple images (batch) >"
-        frame_rate.text = "25"
-        obj_skip_rate.text = "8"
-        bck_skip_rate.text = "14"
-        main_img_duration.text = "2"
-        player_box = self.root.ids.player_box
-        player_box.clear_widgets()
-        btn_end_img = self.root.ids.btn_end_img
+            img_selector_lbl.text = "Select an image file >"
+        
+        # Reset Draw Color Button
+        btn_draw_color.icon = "toggle-switch-off"
+        btn_draw_color.icon_color = "white"
+        btn_draw_color.text_color = "white"
+        btn_draw_color.md_bg_color = "gray"
+        
+        # Reset Two Pass Button
+        btn_two_pass.icon = "toggle-switch-off"
+        btn_two_pass.icon_color = "white"
+        btn_two_pass.text_color = "white"
+        btn_two_pass.md_bg_color = "gray"
+
+        # Reset H264 Button
+        btn_h264_conv.icon = "toggle-switch"
+        btn_h264_conv.icon_color = "green"
+        btn_h264_conv.text_color = "white"
+        btn_h264_conv.md_bg_color = "lightgreen"
+        
+        # Reset End Color Button
         btn_end_img.icon = "toggle-switch"
         btn_end_img.icon_color = "magenta"
         btn_end_img.text_color = "black"
         btn_end_img.md_bg_color = "pink"
-        self.end_color = True
+        
+        # Reset Text Fields
+        frame_rate.text = "25"
+        obj_skip_rate.text = "8"
+        bck_skip_rate.text = "14"
+        main_img_duration.text = "2"
+        
+        # Reset Split Len Dropdown
+        self.split_len_drp.text = "speed"
 
     def all_delete_alert(self):
         del_vid_count = 0
