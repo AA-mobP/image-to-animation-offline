@@ -65,6 +65,7 @@ class DlImg2SktchApp(MDApp):
     obj_skip_rate = NumericProperty(8)
     bck_skip_rate = NumericProperty(14)
     main_img_duration = NumericProperty(2)
+    fill_speed_multiplier = NumericProperty(5)
     internal_storage = ObjectProperty()
     external_storage = ObjectProperty()
     video_dir = ObjectProperty()
@@ -592,12 +593,24 @@ class DlImg2SktchApp(MDApp):
             if self.is_cv2_running:
                 self.show_toast_msg("Please wait for the previous request to finish", is_error=True)
                 return
-            split_len = self.split_len
-            frame_rate = self.root.ids.frame_rate.text if self.root.ids.frame_rate.text != "" else self.frame_rate
-            obj_skip_rate = self.root.ids.obj_skip_rate.text if self.root.ids.obj_skip_rate.text != "" else self.obj_skip_rate
-            bck_skip_rate = self.root.ids.bck_skip_rate.text if self.root.ids.bck_skip_rate.text != "" else self.bck_skip_rate
-            main_img_duration = self.root.ids.main_img_duration.text if self.root.ids.main_img_duration.text != "" else self.main_img_duration
-            sketch_thread = Thread(target=initiate_sketch, args=(self.image_path, split_len, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, self.h264_convert), daemon=True)
+            if platform != "android":
+                self.split_len = int(self.root.ids.split_len_drp.text)
+            self.frame_rate = int(self.root.ids.frame_rate.text)
+            self.obj_skip_rate = int(self.root.ids.obj_skip_rate.text)
+            self.bck_skip_rate = int(self.root.ids.bck_skip_rate.text)
+            self.main_img_duration = int(self.root.ids.main_img_duration.text)
+            self.fill_speed_multiplier = int(self.root.ids.fill_speed.text)
+
+            if not self.image_path:
+                self.show_toast_msg("No image file selected!", is_error=True)
+                return
+            
+            sketch_thread = Thread(target=initiate_sketch, args=(
+                self.image_path, self.split_len, self.frame_rate, self.obj_skip_rate, 
+                self.bck_skip_rate, self.main_img_duration, self.task_complete_callback, 
+                self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, 
+                self.h264_convert, self.fill_speed_multiplier
+            ), daemon=True)
             sketch_thread.start()
             self.is_cv2_running = True
             player_box.clear_widgets()
@@ -708,6 +721,7 @@ class DlImg2SktchApp(MDApp):
         btn_draw_color = self.root.ids.btn_draw_color
         btn_two_pass = self.root.ids.btn_two_pass
         btn_h264_conv = self.root.ids.btn_h264_conv
+        fill_speed = self.root.ids.fill_speed
 
         # Reset internal states
         self.image_path = ""
@@ -718,6 +732,7 @@ class DlImg2SktchApp(MDApp):
         self.two_pass = False
         self.h264_convert = True
         self.batch_process = False
+        self.fill_speed_multiplier = 5
         
         # Reset UI labels
         if platform == "android":
@@ -748,6 +763,8 @@ class DlImg2SktchApp(MDApp):
         btn_end_img.icon_color = "magenta"
         btn_end_img.text_color = "black"
         btn_end_img.md_bg_color = "pink"
+
+        fill_speed.text = "5"
         
         # Reset Text Fields
         frame_rate.text = "25"

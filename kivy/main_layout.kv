@@ -125,7 +125,7 @@ MDScreen:
             color: (0, 0, 0, 0.25)
 
         MDGridLayout: # params
-            cols: 5
+            cols: 6
             size_hint_y: 0.2
             spacing: dp(4)
             padding: 2, 10, 2, 10 # left, top, right, bottom
@@ -137,35 +137,43 @@ MDScreen:
                 font_style: 'Caption'
                 size_hint_y: None
                 height: self.texture_size[1]
-                size_hint_x: 0.2
+                size_hint_x: 0.16
 
             MDLabel:
                 text: "Frame rate"
                 font_style: 'Caption'
                 size_hint_y: None
                 height: self.texture_size[1]
-                size_hint_x: 0.2
+                size_hint_x: 0.16
 
             MDLabel:
                 text: "Object skip rate"
                 font_style: 'Caption'
                 size_hint_y: None
                 height: self.texture_size[1]
-                size_hint_x: 0.2
+                size_hint_x: 0.16
 
             MDLabel:
                 text: "Background skip rate"
                 font_style: 'Caption'
                 size_hint_y: None
                 height: self.texture_size[1]
-                size_hint_x: 0.2
+                size_hint_x: 0.16
 
             MDLabel:
                 text: "End image duration"
                 font_style: 'Caption'
                 size_hint_y: None
                 height: self.texture_size[1]
-                size_hint_x: 0.2
+                size_hint_x: 0.16
+
+            MDLabel:
+                text: "Fill Speed"
+                font_style: 'Caption'
+                size_hint_y: None
+                height: self.texture_size[1]
+                size_hint_x: 0.2 if app.draw_color or app.two_pass else 0.0001
+                opacity: 1 if app.draw_color or app.two_pass else 0
 
             # taking the values in next row
             MDDropDownItem:
@@ -174,7 +182,7 @@ MDScreen:
                 on_release: app.split_len_options.open()
                 text: "speed"
                 font_size: sp(14)
-                size_hint_x: 0.2
+                size_hint_x: 0.16
 
             MDTextField:
                 id: frame_rate
@@ -185,7 +193,7 @@ MDScreen:
                 helper_text: "default: 25"
                 helper_text_mode: "persistent"
                 mode: "rectangle"
-                size_hint_x: 0.2
+                size_hint_x: 0.16
                 font_size: sp(14)
 
             MDTextField:
@@ -197,7 +205,7 @@ MDScreen:
                 helper_text: "default: 8"
                 helper_text_mode: "persistent"
                 mode: "rectangle"
-                size_hint_x: 0.2
+                size_hint_x: 0.16
                 font_size: sp(14)
 
             MDTextField:
@@ -209,7 +217,7 @@ MDScreen:
                 helper_text: "default: 14"
                 helper_text_mode: "persistent"
                 mode: "rectangle"
-                size_hint_x: 0.2
+                size_hint_x: 0.16
                 font_size: sp(14)
 
             MDTextField:
@@ -217,11 +225,25 @@ MDScreen:
                 text: "2"
                 input_filter: 'int'
                 max_text_length: 1
-                hint_text: "seconds"
-                helper_text: "default: 2"
+                hint_text: "sec"
+                helper_text: "def: 2"
                 helper_text_mode: "persistent"
                 mode: "rectangle"
-                size_hint_x: 0.2
+                size_hint_x: 0.15
+                font_size: sp(14)
+
+            MDTextField:
+                id: fill_speed
+                text: "5"
+                input_filter: 'int'
+                max_text_length: 2
+                hint_text: "fill speed"
+                helper_text: "speed multiplier to control background fill speed"
+                helper_text_mode: "on_focus"
+                mode: "rectangle"
+                size_hint_x: 0.25 if self.opacity > 0 else 0.0001
+                opacity: 1 if app.draw_color or app.two_pass else 0
+                disabled: not (app.draw_color or app.two_pass)
                 font_size: sp(14)
 
         MDGridLayout: # buttons

@@ -170,83 +170,120 @@ def draw_masked_object(
     skip_rate is not provided via variables because this function does not
     know it is drawing object or background or an entire image
     """
-    print("Skip Rate: ", skip_rate)
-    # if there is object mask, then the img_thresh will only correspond to the mask provided
-    img_thresh_copy = variables.img_thresh.copy()
-    if object_mask is not None:
-        # get the object and its background indices
-        object_mask_black_ind = np.where(object_mask == 0)
-        object_ind = np.where(object_mask == 255)
-
-        # make area other than object white
-        img_thresh_copy[object_mask_black_ind] = 255
-
-    selected_ind = 0
+    # --- Layered Detection Logic ---
     n_cuts_vertical = int(math.ceil(variables.resize_ht / variables.split_len))
     n_cuts_horizontal = int(math.ceil(variables.resize_wd / variables.split_len))
 
-    # cut the image into grids
-    grid_of_cuts = np.array(np.split(img_thresh_copy, n_cuts_horizontal, axis=-1))
-    grid_of_cuts = np.array(np.split(grid_of_cuts, n_cuts_vertical, axis=-2))
-    print(grid_of_cuts.shape)
+    # 1. Detect Line Blocks (Structural details)
+    line_mask = variables.img_thresh.copy()
+    if object_mask is not None:
+        line_mask[object_mask == 0] = 255
+    
+    grid_of_lines = np.array(np.split(line_mask, n_cuts_horizontal, axis=-1))
+    grid_of_lines = np.array(np.split(grid_of_lines, n_cuts_vertical, axis=-2))
+    
+    has_line = (grid_of_lines < black_pixel_threshold) * 1
+    has_line = np.sum(np.sum(has_line, axis=-1), axis=-1)
+    line_indices = np.array(np.where(has_line > 0)).T
 
-    # find grids where there is atleast one black pixel
-    # as only these grids will be drawn
-    cut_having_black = (grid_of_cuts < black_pixel_threshold) * 1
-    cut_having_black = np.sum(np.sum(cut_having_black, axis=-1), axis=-1)
-    cut_black_indices = np.array(np.where(cut_having_black > 0)).T
+    work_stages = []
+    if variables.draw_color:
+        # 2. Detect Color Blocks (Backgrounds/Fills)
+        img_full_sum = np.sum(variables.img.astype(np.uint32), axis=-1)
+        color_mask = np.zeros_like(variables.img_thresh)
+        color_mask[img_full_sum < 750] = 0
+        color_mask[img_full_sum >= 750] = 255
+        if object_mask is not None:
+            color_mask[object_mask == 0] = 255
+            
+        grid_of_colors = np.array(np.split(color_mask, n_cuts_horizontal, axis=-1))
+        grid_of_colors = np.array(np.split(grid_of_colors, n_cuts_vertical, axis=-2))
+        
+        has_color = (grid_of_colors < black_pixel_threshold) * 1
+        has_color = np.sum(np.sum(has_color, axis=-1), axis=-1)
+        color_indices = np.array(np.where(has_color > 0)).T
+        
+        # Separate into unique stages: Outlines first, then Fills
+        line_set = set(map(tuple, line_indices))
+        fill_indices = np.array([idx for idx in color_indices if tuple(idx) not in line_set])
+        
+        work_stages = [line_indices, fill_indices]
+    else:
+        # Grayscale mode: only lines
+        work_stages = [line_indices]
 
     counter = 0
-    while len(cut_black_indices) > 1:
-        selected_ind_val = cut_black_indices[selected_ind].copy()
-        range_v_start = selected_ind_val[0] * variables.split_len
-        range_v_end = range_v_start + variables.split_len
-        range_h_start = selected_ind_val[1] * variables.split_len
-        range_h_end = range_h_start + variables.split_len
+    selected_ind_val = np.array([0, 0]) # Tracking last position for continuity between stages
 
-        if variables.draw_color:
-            temp_drawing = variables.img[range_v_start:range_v_end, range_h_start:range_h_end].copy()
-            # Full coloring: revealed block is shown exactly as is from the original image
+    # --- SPEED CONTROL ---
+    # Increase this number to speed up the background/fill stage (Stage 2)
+    # Default was 2, but given your results, 5 or 10 might be better.
+    FILL_SPEED_MULTIPLIER = 10 
+
+    for stage_idx, cut_black_indices in enumerate(work_stages):
+        if len(cut_black_indices) == 0:
+            continue
+            
+        # Stage-specific speed adjustment: Phase 2 (fills) is faster than phase 1 (outlines)
+        if variables.draw_color and stage_idx == 1:
+            effective_skip_rate = skip_rate * variables.fill_speed_multiplier
         else:
-            temp_drawing = np.zeros((variables.split_len, variables.split_len, 3))
-            temp_drawing[:, :, 0] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
-            temp_drawing[:, :, 1] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
-            temp_drawing[:, :, 2] = grid_of_cuts[selected_ind_val[0]][selected_ind_val[1]]
+            effective_skip_rate = skip_rate
 
-        variables.drawn_frame[range_v_start:range_v_end, range_h_start:range_h_end] = (
-            temp_drawing
-        )
-
-        hand_coord_x = range_h_start + int(variables.split_len / 2)
-        hand_coord_y = range_v_start + int(variables.split_len / 2)
-        drawn_frame_with_hand = draw_hand_on_img(
-            variables.drawn_frame.copy(),
-            variables.hand.copy(),
-            hand_coord_x,
-            hand_coord_y,
-            variables.hand_mask_inv.copy(),
-            variables.hand_ht,
-            variables.hand_wd,
-            variables.resize_ht,
-            variables.resize_wd,
-        )
-
-        # delete the selected ind from the d_array
-        cut_black_indices[selected_ind] = cut_black_indices[-1]
-        cut_black_indices = cut_black_indices[:-1]
-
-        del selected_ind
-
-        # select the next new index
+        # For the first block of any stage, find the closest to the last known position
         euc_arr = euc_dist(cut_black_indices, selected_ind_val)
         selected_ind = np.argmin(euc_arr)
 
-        counter += 1
-        if counter % skip_rate == 0:
-            variables.video_object.write(drawn_frame_with_hand)
+        while len(cut_black_indices) > 0:
+            selected_ind_val = cut_black_indices[selected_ind].copy()
+            range_v_start = selected_ind_val[0] * variables.split_len
+            range_v_end = range_v_start + variables.split_len
+            range_h_start = selected_ind_val[1] * variables.split_len
+            range_h_end = range_h_start + variables.split_len
+            if variables.draw_color:
+                temp_drawing = variables.img[range_v_start:range_v_end, range_h_start:range_h_end].copy()
+                # Full coloring: revealed block is shown exactly as is from the original image
+            else:
+                temp_drawing = np.zeros((variables.split_len, variables.split_len, 3))
+                temp_drawing[:, :, 0] = grid_of_lines[selected_ind_val[0]][selected_ind_val[1]]
+                temp_drawing[:, :, 1] = grid_of_lines[selected_ind_val[0]][selected_ind_val[1]]
+                temp_drawing[:, :, 2] = grid_of_lines[selected_ind_val[0]][selected_ind_val[1]]
 
-        if counter % 40 == 0:
-            print("len of black indices: ", len(cut_black_indices))
+            variables.drawn_frame[range_v_start:range_v_end, range_h_start:range_h_end] = (
+                temp_drawing
+            )
+
+            hand_coord_x = range_h_start + int(variables.split_len / 2)
+            hand_coord_y = range_v_start + int(variables.split_len / 2)
+            drawn_frame_with_hand = draw_hand_on_img(
+                variables.drawn_frame.copy(),
+                variables.hand.copy(),
+                hand_coord_x,
+                hand_coord_y,
+                variables.hand_mask_inv.copy(),
+                variables.hand_ht,
+                variables.hand_wd,
+                variables.resize_ht,
+                variables.resize_wd,
+            )
+
+            # delete the selected ind from the d_array
+            cut_black_indices[selected_ind] = cut_black_indices[-1]
+            cut_black_indices = cut_black_indices[:-1]
+
+            if len(cut_black_indices) == 0:
+                break
+                
+            # select the next new index
+            euc_arr = euc_dist(cut_black_indices, selected_ind_val)
+            selected_ind = np.argmin(euc_arr)
+
+            counter += 1
+            if counter % effective_skip_rate == 0:
+                variables.video_object.write(drawn_frame_with_hand)
+
+            if counter % 40 == 0:
+                print("len of black indices: ", len(cut_black_indices))
 
 
 
@@ -410,6 +447,7 @@ class AllVariables:
         end_gray_img_duration_in_sec=None,
         draw_color=False,
         two_pass=False,
+        fill_speed_multiplier=5,
     ):
         self.frame_rate = frame_rate
         self.resize_wd = resize_wd
@@ -420,6 +458,7 @@ class AllVariables:
         self.end_gray_img_duration_in_sec = end_gray_img_duration_in_sec
         self.draw_color = draw_color
         self.two_pass = two_pass
+        self.fill_speed_multiplier = fill_speed_multiplier
 
 def common_divisors(num1, num2):
     """
@@ -495,7 +534,7 @@ def ffmpeg_convert(source_vid, dest_vid, platform="linux"):
 
 def initiate_sketch(
         image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path=save_path,
-        which_platform="linux", end_color=True, draw_color=False, two_pass=False, h264_convert=True):
+        which_platform="linux", end_color=True, draw_color=False, two_pass=False, h264_convert=True, fill_speed_multiplier=5):
 #    print(image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path)
     
     # making result dict
@@ -546,7 +585,8 @@ def initiate_sketch(
             bg_object_skip_rate=bg_object_skip_rate,
             end_gray_img_duration_in_sec=main_img_duration,
             draw_color=draw_color,
-            two_pass=two_pass
+            two_pass=two_pass,
+            fill_speed_multiplier=fill_speed_multiplier
         )
 
         # invoking the drawing function
