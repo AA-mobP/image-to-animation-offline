@@ -88,7 +88,15 @@ buildozer -v android release
 ```
 
 ### 🖳 Build Computer Application (Windows / Linux / MacOS)
-A `Python` virtual environment is recommended and please follow the same steps from above till the pip module installations (do not require buildozer for desktop apps). It builds a native app depending on the OS type i.e. `.exe` if you are running `PyInstaller` from a Windows machine. Build computer apps from [docker image](https://hub.docker.com/r/cdrx/pyinstaller-windows) for any OS type.
+
+#### 🤖 Automated Builds (Recommended)
+The project is configured with **GitHub Actions** to automatically build both Linux and Windows binaries.
+1. Create a new tag: `git tag v2.0.0`
+2. Push the tag: `git push origin v2.0.0`
+3. Check the **Releases** or **Actions** tab on your GitHub repo to download the binaries.
+
+#### 🛠️ Manual Build (Native)
+A `Python` virtual environment is recommended ...
 
 ```bash
 # install pyinstaller
