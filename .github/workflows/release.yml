@@ -4,10 +4,10 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
     paths:
       - 'kivy/**'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -41,13 +41,16 @@ jobs:
             gstreamer1.0-plugins-bad \
             gstreamer1.0-plugins-ugly \
             gstreamer1.0-libav \
-            gstreamer1.0-doc \
             gstreamer1.0-tools \
             gstreamer1.0-x \
             libmtdev-dev \
             xclip \
             xsel \
             libjpeg-dev \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
             libavformat-dev \
             libavcodec-dev \
             libswscale-dev \
@@ -65,12 +68,22 @@ jobs:
         run: |
           pyinstaller dlDesktop.spec
 
+      - name: Verify Build Output
+        working-directory: kivy/dist
+        run: |
+          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            test -f Img2Sketch || exit 1
+          else
+            test -f Img2Sketch.exe || exit 1
+          fi
+        shell: bash
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Img2Sketch-${{ matrix.os }}
           path: kivy/dist/
-          retention-days: 5
+          retention-days: 30
 
   create-release:
     name: Create GitHub Release
@@ -94,14 +107,19 @@ jobs:
         working-directory: release-assets/linux
         run: |
           chmod +x Img2Sketch
-          zip -r ../../Img2Sketch-Linux-v2.0.0.zip .
+          zip -r ../../Img2Sketch-Linux-${{ github.ref_name }}.zip .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release-assets/windows/Img2Sketch.exe
-            Img2Sketch-Linux-v2.0.0.zip
+            Img2Sketch-Linux-${{ github.ref_name }}.zip
+          body: |
+            ## Build Information
+            - Python Version: 3.11
+            - Build Date: ${{ github.event.head_commit.timestamp }}
+            - Commit: ${{ github.sha }}
           draft: false
           prerelease: false
           generate_release_notes: true
