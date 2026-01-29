@@ -569,19 +569,30 @@ class DlImg2SktchApp(MDApp):
                 #process batch
                 player_box.clear_widgets()
                 player_box.add_widget(TempSpinWait(txt = "Please wait while generating the sketch files (batch)..."))
-                self.batch_progress = MDProgressBar(
-                    value = 0,
-                    pos_hint = {"center_x": .5, "center_y": .5},
-                    size_hint_y = 0.2
-                )
-                player_box.add_widget(self.batch_progress)
-                player_box.add_widget(BatchStopBtn())
-                self.batch_queue.put("start")
                 frame_rate = self.root.ids.frame_rate.text if self.root.ids.frame_rate.text != "" else self.frame_rate
                 obj_skip_rate = self.root.ids.obj_skip_rate.text if self.root.ids.obj_skip_rate.text != "" else self.obj_skip_rate
                 bck_skip_rate = self.root.ids.bck_skip_rate.text if self.root.ids.bck_skip_rate.text != "" else self.bck_skip_rate
                 main_img_duration = self.root.ids.main_img_duration.text if self.root.ids.main_img_duration.text != "" else self.main_img_duration
-                batch_thread = Thread(target=self.batch_loop, args=(img_file_list, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration)), daemon=True)
+                fill_speed = self.root.ids.fill_speed.text if self.root.ids.fill_speed.text != "" else 5
+                
+                player_box.add_widget(MDLabel(text="Batch Overall Progress:", adaptive_height=True))
+                self.batch_progress = MDProgressBar(
+                    value = 0,
+                    size_hint_y = 0.2
+                )
+                player_box.add_widget(self.batch_progress)
+                
+                player_box.add_widget(MDLabel(text="Current Image Progress:", adaptive_height=True))
+                self.batch_sub_progress = MDProgressBar(
+                    value = 0,
+                    size_hint_y = 0.2
+                )
+                player_box.add_widget(self.batch_sub_progress)
+                
+                player_box.add_widget(BatchStopBtn())
+                self.batch_queue.put("start")
+                batch_thread = Thread(target=self.batch_loop, args=(img_file_list, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), int(fill_speed)), daemon=True)
+
                 batch_thread.start()
             else:
                 self.show_toast_msg("There is no image file in the selected folder!", is_error=True)
@@ -605,25 +616,41 @@ class DlImg2SktchApp(MDApp):
                 self.show_toast_msg("No image file selected!", is_error=True)
                 return
             
+            player_box.clear_widgets()
+            player_box.add_widget(TempSpinWait(txt = "Please wait while generating the sketch..."))
+            self.single_progress = MDProgressBar(
+                value = 0,
+                pos_hint = {"center_x": .5, "center_y": .5},
+                size_hint_y = 0.2
+            )
+            player_box.add_widget(self.single_progress)
+
             sketch_thread = Thread(target=initiate_sketch, args=(
                 self.image_path, self.split_len, self.frame_rate, self.obj_skip_rate, 
                 self.bck_skip_rate, self.main_img_duration, self.task_complete_callback, 
                 self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, 
-                self.h264_convert, self.fill_speed_multiplier
+                self.h264_convert, self.fill_speed_multiplier, self.update_single_prog
             ), daemon=True)
             sketch_thread.start()
             self.is_cv2_running = True
-            player_box.clear_widgets()
-            player_box.add_widget(TempSpinWait(txt = "Please wait while generating the sketch..."))
 
-    def batch_loop(self, img_file_list, frame_rate, obj_skip_rate, bck_skip_rate, main_img_duration):
+
+    def batch_loop(self, img_file_list, frame_rate, obj_skip_rate, bck_skip_rate, main_img_duration, fill_speed):
+
         split_len = self.split_len
         progress_val = 0
         progress_steps = int(100/self.img_file_count)
         q_message = "start"
         for file in img_file_list:
+            self.update_batch_sub_prog(0)
             full_img_path = os.path.join(self.image_folder, file)
-            sketch_thread = Thread(target=initiate_sketch, args=(full_img_path, split_len, int(frame_rate), int(obj_skip_rate), int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, self.h264_convert), daemon=True)
+            sketch_thread = Thread(target=initiate_sketch, args=(
+                full_img_path, split_len, int(frame_rate), int(obj_skip_rate), 
+                int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, 
+                self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, 
+                self.h264_convert, fill_speed, self.update_batch_sub_prog
+            ), daemon=True)
+
             sketch_thread.start()
             self.is_cv2_running = True
             self.batch_queue.put("start")
@@ -710,6 +737,19 @@ class DlImg2SktchApp(MDApp):
 
     def batch_prog_updater(self, progress_val):
         self.batch_progress.value = progress_val
+
+    def update_single_prog(self, progress_val):
+        Clock.schedule_once(lambda dt: self._set_single_prog(progress_val))
+
+    def _set_single_prog(self, progress_val):
+        self.single_progress.value = progress_val
+
+    def update_batch_sub_prog(self, progress_val):
+        Clock.schedule_once(lambda dt: self._set_batch_sub_prog(progress_val))
+
+    def _set_batch_sub_prog(self, progress_val):
+        self.batch_sub_progress.value = progress_val
+
 
     def reset_all(self):
         img_selector_lbl = self.root.ids.img_selector_lbl

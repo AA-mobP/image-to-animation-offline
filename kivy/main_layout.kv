@@ -84,7 +84,7 @@ MDScreen:
         MDGridLayout: # top file browser
             id: file_choose_grid
             cols: 4
-            size_hint_y: 0.1
+            adaptive_height: True
             spacing: dp(4)
             padding: 8, 10, 8, 10 # left, top, right, bottom
 
@@ -115,7 +115,7 @@ MDScreen:
         MDGridLayout: # video player
             id: player_box
             cols: 1
-            size_hint_y: 0.5
+            size_hint_y: 1
             padding: 2, 10, 2, 10 # left, top, right, bottom
             spacing: dp(4)
 
@@ -124,198 +124,205 @@ MDScreen:
         MyMDDivider:
             color: (0, 0, 0, 0.25)
 
-        MDGridLayout: # params
-            cols: 6
-            size_hint_y: 0.2
-            spacing: dp(4)
-            padding: 2, 10, 2, 10 # left, top, right, bottom
-            ## Split len, Frame rate, Object skip rate, Background skip rate, Original image duration
+        MDBoxLayout: # bottom controls container
+            orientation: 'horizontal'
+            adaptive_height: True
+            spacing: dp(16)
+            padding: dp(10)
 
-            # hint texts in first row
-            MDLabel:
-                text: "Select video speed"
-                font_style: 'Caption'
-                size_hint_y: None
-                height: self.texture_size[1]
-                size_hint_x: 0.16
+            MDGridLayout: # params area
+                cols: 3
+                adaptive_height: True
+                size_hint_x: 0.6
+                spacing: dp(4)
+                # padding: 2, 10, 2, 10 # left, top, right, bottom
+                ## Split len, Frame rate, Object skip rate, Background skip rate, Original image duration
 
-            MDLabel:
-                text: "Frame rate"
-                font_style: 'Caption'
-                size_hint_y: None
-                height: self.texture_size[1]
-                size_hint_x: 0.16
+                # hint texts in first row
+                MDLabel:
+                    text: "Video speed"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
 
-            MDLabel:
-                text: "Object skip rate"
-                font_style: 'Caption'
-                size_hint_y: None
-                height: self.texture_size[1]
-                size_hint_x: 0.16
+                MDLabel:
+                    text: "Frame rate"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
 
-            MDLabel:
-                text: "Background skip rate"
-                font_style: 'Caption'
-                size_hint_y: None
-                height: self.texture_size[1]
-                size_hint_x: 0.16
+                MDLabel:
+                    text: "Object skip"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
 
-            MDLabel:
-                text: "End image duration"
-                font_style: 'Caption'
-                size_hint_y: None
-                height: self.texture_size[1]
-                size_hint_x: 0.16
+                # taking the values in next row
+                MDDropDownItem:
+                    id: split_len_drp
+                    md_bg_color: "#bdc6b0"
+                    on_release: app.split_len_options.open()
+                    text: "speed"
+                    font_size: sp(14)
+                    size_hint_x: 0.33
 
-            MDLabel:
-                text: "Fill Speed"
-                font_style: 'Caption'
-                size_hint_y: None
-                height: self.texture_size[1]
-                size_hint_x: 0.2 if app.draw_color or app.two_pass else 0.0001
-                opacity: 1 if app.draw_color or app.two_pass else 0
+                MDTextField:
+                    id: frame_rate
+                    text: "25"
+                    input_filter: 'int'
+                    max_text_length: 2
+                    hint_text: "fps"
+                    helper_text: "default: 25"
+                    helper_text_mode: "persistent"
+                    mode: "rectangle"
+                    size_hint_x: 0.33
+                    font_size: sp(14)
 
-            # taking the values in next row
-            MDDropDownItem:
-                id: split_len_drp
-                md_bg_color: "#bdc6b0"
-                on_release: app.split_len_options.open()
-                text: "speed"
-                font_size: sp(14)
-                size_hint_x: 0.16
+                MDTextField:
+                    id: obj_skip_rate
+                    text: "8"
+                    input_filter: 'int'
+                    max_text_length: 2
+                    hint_text: "obj skip"
+                    helper_text: "default: 8"
+                    helper_text_mode: "persistent"
+                    mode: "rectangle"
+                    size_hint_x: 0.33
+                    font_size: sp(14)
 
-            MDTextField:
-                id: frame_rate
-                text: "25"
-                input_filter: 'int'
-                max_text_length: 2
-                hint_text: "fps"
-                helper_text: "default: 25"
-                helper_text_mode: "persistent"
-                mode: "rectangle"
-                size_hint_x: 0.16
-                font_size: sp(14)
+                # third row
+                MDLabel:
+                    text: "Bck skip rate"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
 
-            MDTextField:
-                id: obj_skip_rate
-                text: "8"
-                input_filter: 'int'
-                max_text_length: 2
-                hint_text: "obj skip"
-                helper_text: "default: 8"
-                helper_text_mode: "persistent"
-                mode: "rectangle"
-                size_hint_x: 0.16
-                font_size: sp(14)
+                MDLabel:
+                    text: "End image dur"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
 
-            MDTextField:
-                id: bck_skip_rate
-                text: "14"
-                input_filter: 'int'
-                max_text_length: 2
-                hint_text: "bck skip"
-                helper_text: "default: 14"
-                helper_text_mode: "persistent"
-                mode: "rectangle"
-                size_hint_x: 0.16
-                font_size: sp(14)
+                MDLabel:
+                    text: "Fill Speed"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
 
-            MDTextField:
-                id: main_img_duration
-                text: "2"
-                input_filter: 'int'
-                max_text_length: 1
-                hint_text: "sec"
-                helper_text: "def: 2"
-                helper_text_mode: "persistent"
-                mode: "rectangle"
-                size_hint_x: 0.15
-                font_size: sp(14)
+                # fourth row
+                MDTextField:
+                    id: bck_skip_rate
+                    text: "14"
+                    input_filter: 'int'
+                    max_text_length: 2
+                    hint_text: "bck skip"
+                    helper_text: "default: 14"
+                    helper_text_mode: "persistent"
+                    mode: "rectangle"
+                    size_hint_x: 0.33
+                    font_size: sp(14)
 
-            MDTextField:
-                id: fill_speed
-                text: "5"
-                input_filter: 'int'
-                max_text_length: 2
-                hint_text: "fill speed"
-                helper_text: "speed multiplier to control background fill speed"
-                helper_text_mode: "on_focus"
-                mode: "rectangle"
-                size_hint_x: 0.25 if self.opacity > 0 else 0.0001
-                opacity: 1 if app.draw_color or app.two_pass else 0
-                disabled: not (app.draw_color or app.two_pass)
-                font_size: sp(14)
+                MDTextField:
+                    id: main_img_duration
+                    text: "2"
+                    input_filter: 'int'
+                    max_text_length: 1
+                    hint_text: "sec"
+                    helper_text: "def: 2"
+                    helper_text_mode: "persistent"
+                    mode: "rectangle"
+                    size_hint_x: 0.33
+                    font_size: sp(14)
 
-        MDGridLayout: # buttons
-            cols: 3
-            size_hint_y: 0.25
-            spacing: dp(4)
-            padding: 14, 0, 14, 0 # left, top, right, bottom
+                MDTextField:
+                    id: fill_speed
+                    text: "5"
+                    input_filter: 'int'
+                    max_text_length: 2
+                    hint_text: "fill speed"
+                    helper_text: "speed mult"
+                    helper_text_mode: "on_focus"
+                    mode: "rectangle"
+                    size_hint_x: 0.33
+                    font_size: sp(14)
 
-            MDFillRoundFlatIconButton:
-                id: btn_draw_color
-                text: "Draw Colour"
-                text_color: 'white'
-                icon: "toggle-switch-off"
-                icon_color: "white"
-                font_size: sp(18)
-                md_bg_color: 'gray'
-                pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.33
-                on_release: app.set_draw_color()
+            MyMDDivider:
+                orientation: 'vertical'
+                color: (0, 0, 0, 0.25)
+                divider_width: dp(2)
 
-            MDFillRoundFlatIconButton:
-                id: btn_two_pass
-                text: "Two Pass"
-                text_color: 'white'
-                icon: "toggle-switch-off"
-                icon_color: "white"
-                font_size: sp(18)
-                md_bg_color: 'gray'
-                pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.33
-                on_release: app.set_two_pass()
+            MDGridLayout: # buttons area
+                cols: 2
+                adaptive_height: True
+                size_hint_x: 0.4
+                spacing: dp(8)
+                padding: 4, 0, 4, 0 # left, top, right, bottom
 
-            MDFillRoundFlatIconButton:
-                id: btn_h264_conv
-                text: "H264 Conv"
-                text_color: 'white'
-                icon: "toggle-switch"
-                icon_color: "green"
-                font_size: sp(18)
-                md_bg_color: 'lightgreen'
-                pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.33
-                on_release: app.set_h264_convert()
+                MDFillRoundFlatIconButton:
+                    id: btn_draw_color
+                    text: "Draw Colour"
+                    text_color: 'white'
+                    icon: "toggle-switch-off"
+                    icon_color: "white"
+                    font_size: sp(16)
+                    md_bg_color: 'gray'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.set_draw_color()
 
-            MDFillRoundFlatIconButton:
-                id: btn_end_img
-                text: "End Colour"
-                text_color: 'black'
-                icon: "toggle-switch"
-                icon_color: "magenta"
-                font_size: sp(18)
-                md_bg_color: 'pink'
-                pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.33
-                on_release: app.set_end_img_color()
+                MDFillRoundFlatIconButton:
+                    id: btn_two_pass
+                    text: "Two Pass"
+                    text_color: 'white'
+                    icon: "toggle-switch-off"
+                    icon_color: "white"
+                    font_size: sp(16)
+                    md_bg_color: 'gray'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.set_two_pass()
 
-            MDFillRoundFlatIconButton:
-                id: btn_submit
-                text: "Submit"
-                icon: "send"
-                font_size: sp(18)
-                md_bg_color: 'orange'
-                pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.33
-                on_release: app.submit_sketch_req()
+                MDFillRoundFlatIconButton:
+                    id: btn_h264_conv
+                    text: "H264 Conv"
+                    text_color: 'white'
+                    icon: "toggle-switch"
+                    icon_color: "green"
+                    font_size: sp(16)
+                    md_bg_color: 'lightgreen'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.set_h264_convert()
 
-            MDFillRoundFlatIconButton:
-                id: btn_reset
-                text: "Reset"
-                icon: "undo-variant"
-                font_size: sp(18)
-                md_bg_color: '#333036'
-                pos_hint: {"center_x": .5, "center_y": .5}
-                size_hint_x: 0.33
-                on_release: app.reset_all()
+                MDFillRoundFlatIconButton:
+                    id: btn_end_img
+                    text: "End Colour"
+                    text_color: 'black'
+                    icon: "toggle-switch"
+                    icon_color: "magenta"
+                    font_size: sp(16)
+                    md_bg_color: 'pink'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.set_end_img_color()
+
+                MDFillRoundFlatIconButton:
+                    id: btn_submit
+                    text: "Submit"
+                    icon: "send"
+                    font_size: sp(18)
+                    md_bg_color: 'orange'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.submit_sketch_req()
+
+                MDFillRoundFlatIconButton:
+                    id: btn_reset
+                    text: "Reset"
+                    icon: "undo-variant"
+                    font_size: sp(18)
+                    md_bg_color: '#333036'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.reset_all()
+

@@ -164,7 +164,7 @@ def draw_hand_on_img(
 
 
 def draw_masked_object(
-    variables, object_mask=None, skip_rate=5, black_pixel_threshold=10
+    variables, object_mask=None, skip_rate=5, black_pixel_threshold=10, progress_callback=None
 ):
     """
     skip_rate is not provided via variables because this function does not
@@ -214,12 +214,12 @@ def draw_masked_object(
 
     counter = 0
     selected_ind_val = np.array([0, 0]) # Tracking last position for continuity between stages
+    
+    # Progress tracking
+    total_pixels_to_draw = sum(len(stage) for stage in work_stages)
+    pixels_drawn = 0
 
-    # --- SPEED CONTROL ---
-    # Increase this number to speed up the background/fill stage (Stage 2)
-    # Default was 2, but given your results, 5 or 10 might be better.
-    FILL_SPEED_MULTIPLIER = 10 
-
+    # Phase 2 (fills) is faster than phase 1 (outlines)
     for stage_idx, cut_black_indices in enumerate(work_stages):
         if len(cut_black_indices) == 0:
             continue
@@ -284,11 +284,18 @@ def draw_masked_object(
 
             if counter % 40 == 0:
                 print("len of black indices: ", len(cut_black_indices))
+                
+            # Report progress
+            if progress_callback:
+                pixels_drawn += 1
+                if pixels_drawn % 20 == 0 or pixels_drawn == total_pixels_to_draw:
+                    progress_val = int((pixels_drawn / total_pixels_to_draw) * 100)
+                    progress_callback(progress_val)
 
 
 
 def draw_whiteboard_animations(
-    img, mask_path, hand_path, hand_mask_path, save_video_path, variables, end_color=True
+    img, mask_path, hand_path, hand_mask_path, save_video_path, variables, end_color=True, progress_callback=None
 ):
     if mask_path is not None:
         object_mask_exists = True
@@ -362,6 +369,7 @@ def draw_whiteboard_animations(
                 variables=variables,
                 object_mask=object_mask,
                 skip_rate=variables.object_skip_rate,
+                progress_callback=progress_callback,
             )
 
         # now draw the last remaing background part
@@ -376,6 +384,7 @@ def draw_whiteboard_animations(
             variables=variables,
             object_mask=background_mask,
             skip_rate=variables.bg_object_skip_rate,
+            progress_callback=progress_callback,
         )
     else:
         # variables.split_len = 15
@@ -388,6 +397,7 @@ def draw_whiteboard_animations(
             draw_masked_object(
                 variables=variables,
                 skip_rate=variables.object_skip_rate,
+                progress_callback=progress_callback,
             )
             
             print("Running Second Pass: Color...")
@@ -399,6 +409,7 @@ def draw_whiteboard_animations(
             draw_masked_object(
                 variables=variables,
                 skip_rate=variables.object_skip_rate,
+                progress_callback=progress_callback,
             )
             # Restore original skip rate
             variables.object_skip_rate = original_skip_rate
@@ -406,6 +417,7 @@ def draw_whiteboard_animations(
             draw_masked_object(
                 variables=variables,
                 skip_rate=variables.object_skip_rate,
+                progress_callback=progress_callback,
             )
 
     # Final "Cleanup" Reveal: ensures the full image is perfectly displayed before the static end frames
@@ -534,7 +546,8 @@ def ffmpeg_convert(source_vid, dest_vid, platform="linux"):
 
 def initiate_sketch(
         image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path=save_path,
-        which_platform="linux", end_color=True, draw_color=False, two_pass=False, h264_convert=True, fill_speed_multiplier=5):
+        which_platform="linux", end_color=True, draw_color=False, two_pass=False, h264_convert=True, fill_speed_multiplier=5,
+        progress_callback=None):
 #    print(image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path)
     
     # making result dict
@@ -593,7 +606,7 @@ def initiate_sketch(
         try:
             draw_whiteboard_animations(
                 img, None, hand_path, hand_mask_path, save_video_path, variables,
-                end_color
+                end_color, progress_callback
             )
             if h264_convert:
                 try:
