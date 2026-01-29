@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-20.04, windows-latest]
     
     steps:
       - name: Checkout Code
@@ -29,7 +29,7 @@ jobs:
           cache: 'pip'
 
       - name: Install System Dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-20.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -71,7 +71,7 @@ jobs:
       - name: Verify Build Output
         working-directory: kivy/dist
         run: |
-          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+          if [ "${{ matrix.os }}" == "ubuntu-20.04" ]; then
             test -f Img2Sketch || exit 1
           else
             test -f Img2Sketch.exe || exit 1
@@ -89,7 +89,7 @@ jobs:
     name: Create GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Download Windows Artifact
         uses: actions/download-artifact@v4
@@ -100,7 +100,7 @@ jobs:
       - name: Download Linux Artifact
         uses: actions/download-artifact@v4
         with:
-          name: Img2Sketch-ubuntu-latest
+          name: Img2Sketch-ubuntu-20.04
           path: release-assets/linux
 
       - name: Zip Linux Binary
