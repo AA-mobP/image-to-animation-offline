@@ -1,7 +1,12 @@
 # python core modules
 import os
-os.environ['KIVY_GL_BACKEND'] = 'sdl2'
 import sys
+
+# Check if we're in CLI mode (before Kivy imports)
+if len(sys.argv) > 1 and any(arg in ['--input', '-i', '--help', '-h'] for arg in sys.argv):
+    os.environ['KIVY_NO_ARGS'] = '1'
+
+os.environ['KIVY_GL_BACKEND'] = 'sdl2'
 from threading import Thread
 import queue
 
@@ -23,7 +28,7 @@ from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.utils import platform
 from kivy.clock import Clock
-from kivy.properties import StringProperty, NumericProperty, ObjectProperty
+from kivy.properties import ObjectProperty, StringProperty, NumericProperty, BooleanProperty
 if platform == "android":
     from jnius import autoclass, PythonJavaClass, java_method
 
@@ -75,10 +80,17 @@ class DlImg2SktchApp(MDApp):
     image_folder = StringProperty("")
     vid_download_path = StringProperty("")
     is_cv2_running = ObjectProperty()
+    # Element mode properties
+    element_mode = BooleanProperty(False)
+    white_gap_threshold = NumericProperty(10)
+    element_sort_direction = StringProperty("right-top")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         Window.bind(on_keyboard=self.events)
+        Window.bind(on_drop_file=self.on_file_drop)
+        self.dropped_files = []  # Collect multiple dropped files
+        self.drop_timer = None   # Timer for batch processing
 
     def build(self):
         self.theme_cls.primary_palette = "Blue"
@@ -204,10 +216,137 @@ class DlImg2SktchApp(MDApp):
             items=menu_items,
             width_mult=4,
         )
+        
+        # Element sort direction dropdown
+        sort_directions = ["right-top", "right-bottom", "left-top", "left-bottom"]
+        sort_menu_items = [
+            {
+                "text": direction,
+                "on_release": lambda x=direction: self.set_element_sort(x),
+                "font_size": sp(20)
+            } for direction in sort_directions
+        ]
+        self.element_sort_options = MDDropdownMenu(
+            md_bg_color="#bdc6b0",
+            caller=None,  # Will be set when needed
+            items=sort_menu_items,
+        )
 
     def menu_bar_callback(self, button):
         self.menu.caller = button
         self.menu.open()
+    
+    def on_file_drop(self, window, file_path, x, y):
+        """Handle file drop event - called once per file"""
+        # Decode file path if it's bytes
+        if isinstance(file_path, bytes):
+            file_path = file_path.decode('utf-8')
+        
+        # Check if it's an image file
+        valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp')
+        if file_path.lower().endswith(valid_extensions):
+            self.dropped_files.append(file_path)
+            
+            # Cancel previous timer if exists
+            if self.drop_timer:
+                self.drop_timer.cancel()
+            
+            # Set timer to process after short delay (allows collecting multiple files)
+            self.drop_timer = Clock.schedule_once(self.process_dropped_files, 0.3)
+        else:
+            self.show_toast_msg(f"ملف غير مدعوم: {os.path.basename(file_path)}", is_error=True)
+    
+    def process_dropped_files(self, dt):
+        """Process all dropped files after collection period ends"""
+        if not self.dropped_files:
+            return
+        
+        files_count = len(self.dropped_files)
+        
+        if files_count == 1:
+            # Single file - set as image_path
+            self.image_path = self.dropped_files[0]
+            self.batch_process = False
+            self.show_toast_msg(f"✅ تم تحميل: {os.path.basename(self.image_path)}")
+            
+            # Update preview
+            player_box = self.root.ids.player_box
+            player_box.clear_widgets()
+            try:
+                from kivy.uix.image import Image as KivyImage
+                preview = KivyImage(source=self.image_path, fit_mode="contain")
+                player_box.add_widget(preview)
+            except Exception as e:
+                print(f"Preview error: {e}")
+            
+            # Update split lengths for the new image
+            self.update_split_len_for_image(self.image_path)
+        else:
+            # Multiple files - enable batch mode
+            self.image_folder = os.path.dirname(self.dropped_files[0])
+            self.batch_files = self.dropped_files.copy()
+            self.batch_process = True
+            self.img_file_count = files_count
+            self.show_toast_msg(f"✅ تم تحميل {files_count} صور للمعالجة الدفعية")
+            
+            # Update preview with first image
+            player_box = self.root.ids.player_box
+            player_box.clear_widgets()
+            try:
+                from kivy.uix.image import Image as KivyImage
+                preview = KivyImage(source=self.dropped_files[0], fit_mode="contain")
+                player_box.add_widget(preview)
+                
+                # Add batch indicator label
+                from kivymd.uix.label import MDLabel
+                batch_label = MDLabel(
+                    text=f"📦 {files_count} صور",
+                    halign="center",
+                    size_hint_y=0.1,
+                    theme_text_color="Custom",
+                    text_color=(1, 0.5, 0, 1)
+                )
+                player_box.add_widget(batch_label)
+            except Exception as e:
+                print(f"Preview error: {e}")
+            
+            # Update split lengths using first image
+            self.update_split_len_for_image(self.dropped_files[0])
+        
+        # Clear dropped files list
+        self.dropped_files = []
+        self.drop_timer = None
+    
+    def update_split_len_for_image(self, image_path):
+        """Update split length dropdown based on image dimensions"""
+        try:
+            api_resp = get_split_lens(image_path)
+            split_lens = api_resp["split_lens"]
+            image_details = api_resp["image_res"]
+            
+            # Update image info label
+            img_box = self.root.ids.img_selector_lbl
+            img_box.text = f"{image_details}"
+            
+            menu_items = [
+                {
+                    "text": f"{option}",
+                    "on_release": lambda x=f"{option}": self.set_split_len(x),
+                    "font_size": sp(24)
+                } for option in split_lens
+            ]
+            self.split_len_options = MDDropdownMenu(
+                md_bg_color="#bdc6b0",
+                caller=self.split_len_drp,
+                items=menu_items,
+            )
+            
+            # Set default to first value (usually a good default)
+            if split_lens:
+                self.split_len = split_lens[0]
+                self.split_len_drp.text = str(self.split_len)
+        except Exception as e:
+            print(f"Split len update error: {e}")
 
     def top_menu_callback(self, text_item):
         self.menu.dismiss()
@@ -480,6 +619,27 @@ class DlImg2SktchApp(MDApp):
             btn_h264_conv.icon_color = "white"
             btn_h264_conv.text_color = "white"
             btn_h264_conv.md_bg_color = "gray"
+    
+    def set_element_mode(self):
+        btn_element_mode = self.root.ids.btn_element_mode
+        self.element_mode = not self.element_mode
+        
+        if self.element_mode:
+            btn_element_mode.icon = "toggle-switch"
+            btn_element_mode.icon_color = "purple"
+            btn_element_mode.text_color = "white"
+            btn_element_mode.md_bg_color = "mediumpurple"
+        else:
+            btn_element_mode.icon = "toggle-switch-off"
+            btn_element_mode.icon_color = "white"
+            btn_element_mode.text_color = "white"
+            btn_element_mode.md_bg_color = "gray"
+    
+    def set_element_sort(self, value):
+        self.element_sort_direction = value
+        element_sort_drp = self.root.ids.element_sort_drp
+        element_sort_drp.text = value
+        self.element_sort_options.dismiss()
 
     def update_draw_color_ui(self):
         # Safety check if root or ids are not ready
@@ -611,6 +771,7 @@ class DlImg2SktchApp(MDApp):
             self.bck_skip_rate = int(self.root.ids.bck_skip_rate.text)
             self.main_img_duration = int(self.root.ids.main_img_duration.text)
             self.fill_speed_multiplier = int(self.root.ids.fill_speed.text)
+            self.white_gap_threshold = int(self.root.ids.white_gap.text)
 
             if not self.image_path:
                 self.show_toast_msg("No image file selected!", is_error=True)
@@ -629,7 +790,9 @@ class DlImg2SktchApp(MDApp):
                 self.image_path, self.split_len, self.frame_rate, self.obj_skip_rate, 
                 self.bck_skip_rate, self.main_img_duration, self.task_complete_callback, 
                 self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, 
-                self.h264_convert, self.fill_speed_multiplier, self.update_single_prog
+                self.h264_convert, self.fill_speed_multiplier, 
+                self.element_mode, self.white_gap_threshold, self.element_sort_direction,
+                self.update_single_prog
             ), daemon=True)
             sketch_thread.start()
             self.is_cv2_running = True
@@ -648,7 +811,9 @@ class DlImg2SktchApp(MDApp):
                 full_img_path, split_len, int(frame_rate), int(obj_skip_rate), 
                 int(bck_skip_rate), int(main_img_duration), self.task_complete_callback, 
                 self.video_dir, platform, self.end_color, self.draw_color, self.two_pass, 
-                self.h264_convert, fill_speed, self.update_batch_sub_prog
+                self.h264_convert, fill_speed, 
+                self.element_mode, self.white_gap_threshold, self.element_sort_direction,
+                self.update_batch_sub_prog
             ), daemon=True)
 
             sketch_thread.start()
@@ -889,5 +1054,182 @@ class DlImg2SktchApp(MDApp):
         import webbrowser
         webbrowser.open(url)
 
+def run_cli_mode(args):
+    """Run the application in CLI mode without GUI"""
+    import argparse
+    from pathlib import Path
+    
+    # Validate input path
+    input_path = Path(args.input)
+    if not input_path.exists():
+        print(f"Error: Input path '{args.input}' does not exist")
+        sys.exit(1)
+    
+    # Determine if it's a folder or single image
+    is_folder = input_path.is_dir()
+    
+    # Set output directory
+    output_dir = args.output if args.output else os.path.join(os.getcwd(), 'output')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"🎨 Image to Sketch Animation - CLI Mode")
+    print(f"📁 Input: {input_path}")
+    print(f"📂 Output: {output_dir}")
+    print(f"⚙️  Mode: {'Batch (Folder)' if is_folder else 'Single Image'}")
+    print(f"🎬 Frame Rate: {args.frame_rate}")
+    print(f"⏭️  Object Skip: {args.obj_skip}")
+    print(f"⏭️  Background Skip: {args.bck_skip}")
+    print(f"⏱️  Main Image Duration: {args.duration}s")
+    print(f"🎨 Draw Color: {'Yes' if args.draw_color else 'No'}")
+    print(f"🔄 Two Pass: {'Yes' if args.two_pass else 'No'}")
+    print(f"🚀 Fill Speed: {args.fill_speed}x")
+    print(f"🎞️  H264 Convert: {'Yes' if args.h264 else 'No'}")
+    print("-" * 50)
+    
+    # Callback for completion
+    def cli_callback(success, message):
+        if success:
+            print(f"✅ Success: {message}")
+        else:
+            print(f"❌ Error: {message}")
+    
+    if is_folder:
+        # Batch processing
+        img_extensions = [".png", ".jpg", ".jpeg", ".webp"]
+        img_files = [f for f in os.listdir(str(input_path)) 
+                     if os.path.splitext(f)[1].lower() in img_extensions]
+        
+        if not img_files:
+            print("❌ No image files found in the folder")
+            sys.exit(1)
+        
+        print(f"📊 Found {len(img_files)} images to process")
+        
+        for idx, img_file in enumerate(img_files, 1):
+            full_path = os.path.join(str(input_path), img_file)
+            print(f"\n[{idx}/{len(img_files)}] Processing: {img_file}")
+            
+            initiate_sketch(
+                full_path,
+                args.split_len,
+                args.frame_rate,
+                args.obj_skip,
+                args.bck_skip,
+                args.duration,
+                cli_callback,
+                output_dir,
+                platform,
+                args.end_color,
+                args.draw_color,
+                args.two_pass,
+                args.h264,
+                args.fill_speed,
+                None  # No progress callback in CLI mode
+            )
+    else:
+        # Single image processing
+        print(f"\n🎬 Processing single image...")
+        initiate_sketch(
+            str(input_path),
+            args.split_len,
+            args.frame_rate,
+            args.obj_skip,
+            args.bck_skip,
+            args.duration,
+            cli_callback,
+            output_dir,
+            platform,
+            args.end_color,
+            args.draw_color,
+            args.two_pass,
+            args.h264,
+            args.fill_speed,
+            None  # No progress callback in CLI mode
+        )
+    
+    print("\n✨ All processing complete!")
+
 if __name__ == '__main__':
-    DlImg2SktchApp().run()
+    import argparse
+    
+    # Create argument parser
+    parser = argparse.ArgumentParser(
+        description='Image to Sketch Animation - Convert images to sketch-style animations',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  # Single image with default settings
+  python main.py --input photo.jpg
+  
+  # Batch process folder with custom settings
+  python main.py --input ./images --output ./videos --frame-rate 30 --two-pass
+  
+  # Full custom configuration
+  python main.py -i image.png -o ./output -fr 24 -os 3 -bs 5 -d 2 -dc -tp -fs 8
+        ''',
+        add_help=False  # We'll add custom help to avoid Kivy conflict
+    )
+    
+    # Add custom help
+    parser.add_argument('-h', '--help', action='store_true',
+                        help='Show this help message and exit')
+    
+    # Required arguments
+    parser.add_argument('-i', '--input', type=str,
+                        help='Input image file or folder path')
+    
+    # Optional arguments
+    parser.add_argument('-o', '--output', type=str,
+                        help='Output directory (default: ./output)')
+    
+    parser.add_argument('-sl', '--split-len', type=int, default=4,
+                        choices=[2, 4, 8, 16, 32],
+                        help='Split length for processing (default: 4)')
+    
+    parser.add_argument('-fr', '--frame-rate', type=int, default=24,
+                        help='Video frame rate (default: 24)')
+    
+    parser.add_argument('-os', '--obj-skip', type=int, default=2,
+                        help='Object skip rate (default: 2)')
+    
+    parser.add_argument('-bs', '--bck-skip', type=int, default=3,
+                        help='Background skip rate (default: 3)')
+    
+    parser.add_argument('-d', '--duration', type=int, default=1,
+                        help='Main image display duration in seconds (default: 1)')
+    
+    parser.add_argument('-dc', '--draw-color', action='store_true',
+                        help='Draw with color from the start')
+    
+    parser.add_argument('-tp', '--two-pass', action='store_true',
+                        help='Use two-pass rendering (lines then fill)')
+    
+    parser.add_argument('-fs', '--fill-speed', type=int, default=5,
+                        help='Fill speed multiplier (default: 5)')
+    
+    parser.add_argument('-h264', '--h264', action='store_true',
+                        help='Convert to H264 format after generation')
+    
+    parser.add_argument('-ec', '--end-color', action='store_true', default=True,
+                        help='Show colored image at the end (default: True)')
+    
+    parser.add_argument('--gui', action='store_true',
+                        help='Force GUI mode (default if no --input provided)')
+    
+    # Parse arguments
+    args, unknown = parser.parse_known_args()
+    
+    # Handle help
+    if args.help:
+        parser.print_help()
+        sys.exit(0)
+    
+    # Decide mode: CLI or GUI
+    if args.input and not args.gui:
+        # CLI mode - run without loading GUI
+        run_cli_mode(args)
+    else:
+        # GUI mode (default) - load Kivy and run GUI
+        if args.input:
+            print("⚠️  --gui flag detected, launching GUI mode...")
+        DlImg2SktchApp().run()

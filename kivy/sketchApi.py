@@ -8,7 +8,34 @@ import json
 import datetime
 import cv2
 import numpy as np
-from kivy.clock import Clock
+
+# Optional Kivy import (only needed for GUI mode)
+try:
+    from kivy.clock import Clock
+    KIVY_AVAILABLE = True
+except ImportError:
+    Clock = None
+    KIVY_AVAILABLE = False
+
+# Optional CuPy import for GPU acceleration (Nvidia CUDA).
+# Follows the same try/except pattern used for Kivy above.
+# If CuPy is not installed, or no CUDA device is found,
+# the app falls back to CPU (NumPy) silently with no errors.
+try:
+    import cupy as cp
+    _GPU_AVAILABLE = cp.cuda.runtime.getDeviceCount() > 0
+    if _GPU_AVAILABLE:
+        _name_raw = cp.cuda.runtime.getDeviceProperties(0)['name']
+        _gpu_name = _name_raw.decode() if isinstance(_name_raw, bytes) else _name_raw
+        print(f"[sketchApi] GPU mode active: {_gpu_name}")
+    else:
+        cp = None
+        _GPU_AVAILABLE = False
+        print("[sketchApi] CuPy found but no CUDA device detected. Using CPU (NumPy).")
+except Exception:
+    cp = None
+    _GPU_AVAILABLE = False
+    print("[sketchApi] CuPy not available. Using CPU (NumPy).")
 
 # global variables
 if getattr(sys, 'frozen', False):
@@ -25,8 +52,21 @@ platform = "linux"
 
 ## All functions
 def euc_dist(arr1, point):
-    square_sub = (arr1 - point) ** 2
-    return np.sqrt(np.sum(square_sub, axis=1))
+    """
+    Computes Euclidean distance from every row in arr1 to point.
+    Uses GPU (CuPy) when available, otherwise falls back to CPU (NumPy).
+    Always returns a plain NumPy array so all callers work unchanged.
+    """
+    if _GPU_AVAILABLE:
+        gpu_arr1 = cp.asarray(arr1)
+        gpu_point = cp.asarray(point)
+        square_sub = (gpu_arr1 - gpu_point) ** 2
+        result = cp.sqrt(cp.sum(square_sub, axis=1))
+        return cp.asnumpy(result)  # Always return plain NumPy array
+    else:
+        # Original CPU logic — untouched
+        square_sub = (arr1 - point) ** 2
+        return np.sqrt(np.sum(square_sub, axis=1))
 
 def preprocess_image(img, variables):
     #img = cv2.imread(img_path)
@@ -91,6 +131,115 @@ def get_extreme_coordinates(mask):
     bottomright = (np.max(x), np.max(y))
 
     return topleft, bottomright
+
+
+def flash_element_color(variables, element_mask, duration_sec=0.3):
+    """
+    Flash the full color of an element instantly (no animation).
+    Used in Element Mode + End Colour to show element color after drawing edges.
+    
+    Args:
+        variables: AllVariables object
+        element_mask: Binary mask for the element (255=element, 0=background)
+        duration_sec: How long to display the color (default: 0.3 seconds)
+    """
+    frames = int(variables.frame_rate * duration_sec)
+    
+    for _ in range(frames):
+        # Copy current frame and apply element color from original image
+        temp_frame = variables.drawn_frame.copy()
+        temp_frame[element_mask == 255] = variables.img[element_mask == 255]
+        variables.video_object.write(temp_frame)
+    
+    # Update drawn_frame to include this element's color
+    variables.drawn_frame[element_mask == 255] = variables.img[element_mask == 255]
+
+
+def detect_elements(img, white_gap_threshold=10, sort_direction="right-top"):
+    """
+    Detect separate elements on white background based on white gap between them.
+    
+    Args:
+        img: BGR image (already resized)
+        white_gap_threshold: Minimum white pixels gap between elements (larger = merge closer elements)
+        sort_direction: One of "right-top", "right-bottom", "left-top", "left-bottom"
+    
+    Returns:
+        List of element masks (each mask is same size as image, 255=element area)
+    """
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Threshold to find non-white pixels (elements)
+    # Pixels below 240 are considered non-white (elements)
+    _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
+    
+    # Apply morphological dilation to merge elements that are close together
+    # The kernel size is based on white_gap_threshold
+    if white_gap_threshold > 0:
+        kernel = np.ones((white_gap_threshold, white_gap_threshold), np.uint8)
+        dilated = cv2.dilate(binary, kernel, iterations=1)
+    else:
+        dilated = binary
+    
+    # Find connected components
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(dilated, connectivity=8)
+    
+    # Extract element information (skip label 0 which is background)
+    elements = []
+    for i in range(1, num_labels):
+        # Get bounding box
+        x = stats[i, cv2.CC_STAT_LEFT]
+        y = stats[i, cv2.CC_STAT_TOP]
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        h = stats[i, cv2.CC_STAT_HEIGHT]
+        area = stats[i, cv2.CC_STAT_AREA]
+        
+        # Get centroid for sorting
+        cx, cy = centroids[i]
+        
+        # Create mask for this element using ORIGINAL binary (not dilated)
+        element_mask = np.zeros_like(binary)
+        element_mask[labels == i] = 255
+        
+        # Erode back to original size (reverse the dilation)
+        if white_gap_threshold > 0:
+            element_mask = cv2.erode(element_mask, kernel, iterations=1)
+        
+        # Apply to original binary to get exact element pixels
+        element_mask = cv2.bitwise_and(binary, element_mask)
+        
+        elements.append({
+            'mask': element_mask,
+            'x': x,
+            'y': y,
+            'w': w,
+            'h': h,
+            'cx': cx,
+            'cy': cy,
+            'area': area
+        })
+    
+    # Sort elements based on sort_direction
+    if sort_direction == "right-top":
+        # Rightmost first (larger x), then topmost (smaller y)
+        elements.sort(key=lambda e: (-e['cx'], e['cy']))
+    elif sort_direction == "right-bottom":
+        # Rightmost first (larger x), then bottommost (larger y)
+        elements.sort(key=lambda e: (-e['cx'], -e['cy']))
+    elif sort_direction == "left-top":
+        # Leftmost first (smaller x), then topmost (smaller y)
+        elements.sort(key=lambda e: (e['cx'], e['cy']))
+    elif sort_direction == "left-bottom":
+        # Leftmost first (smaller x), then bottommost (larger y)
+        elements.sort(key=lambda e: (e['cx'], -e['cy']))
+    
+    # Return list of masks
+    element_masks = [e['mask'] for e in elements]
+    
+    print(f"Detected {len(element_masks)} elements with white gap threshold: {white_gap_threshold}px")
+    
+    return element_masks
 
 
 def draw_hand_on_img(
@@ -386,6 +535,77 @@ def draw_whiteboard_animations(
             skip_rate=variables.bg_object_skip_rate,
             progress_callback=progress_callback,
         )
+    elif variables.element_mode:
+        # Element-by-element mode: detect separate elements and draw each completely
+        print("Element Mode: Detecting separate elements...")
+        element_masks = detect_elements(
+            variables.img,
+            variables.white_gap_threshold,
+            variables.element_sort_direction
+        )
+        
+        if len(element_masks) == 0:
+            print("No elements detected! Drawing entire image normally...")
+            draw_masked_object(
+                variables=variables,
+                skip_rate=variables.object_skip_rate,
+                progress_callback=progress_callback,
+            )
+        else:
+            # Draw each element completely before moving to the next
+            for idx, element_mask in enumerate(element_masks, 1):
+                print(f"Drawing element {idx}/{len(element_masks)}...")
+                
+                if variables.two_pass:
+                    # Two Pass mode for this element
+                    print(f"  Pass 1: Drawing edges (element {idx})...")
+                    original_draw_color = variables.draw_color
+                    variables.draw_color = False
+                    draw_masked_object(
+                        variables=variables,
+                        object_mask=element_mask,
+                        skip_rate=variables.object_skip_rate,
+                        progress_callback=progress_callback,
+                    )
+                    
+                    print(f"  Pass 2: Filling color (element {idx})...")
+                    variables.draw_color = True
+                    # Make the color pass slightly faster
+                    original_skip_rate = variables.object_skip_rate
+                    variables.object_skip_rate = int(original_skip_rate * 1.5)
+                    
+                    draw_masked_object(
+                        variables=variables,
+                        object_mask=element_mask,
+                        skip_rate=variables.object_skip_rate,
+                        progress_callback=progress_callback,
+                    )
+                    
+                    # Restore original values
+                    variables.object_skip_rate = original_skip_rate
+                    variables.draw_color = original_draw_color
+                    
+                elif variables.end_color and not variables.draw_color:
+                    # End Colour mode: draw edges then flash color
+                    print(f"  Drawing edges (element {idx})...")
+                    draw_masked_object(
+                        variables=variables,
+                        object_mask=element_mask,
+                        skip_rate=variables.object_skip_rate,
+                        progress_callback=progress_callback,
+                    )
+                    
+                    print(f"  Flashing color (element {idx})...")
+                    flash_element_color(variables, element_mask, duration_sec=0.3)
+                    
+                else:
+                    # Normal draw (with or without color)
+                    draw_masked_object(
+                        variables=variables,
+                        object_mask=element_mask,
+                        skip_rate=variables.object_skip_rate,
+                        progress_callback=progress_callback,
+                    )
     else:
         # variables.split_len = 15
         # variables.object_skip_rate = 8
@@ -460,6 +680,10 @@ class AllVariables:
         draw_color=False,
         two_pass=False,
         fill_speed_multiplier=5,
+        element_mode=False,
+        white_gap_threshold=10,
+        element_sort_direction="right-top",
+        end_color=True,
     ):
         self.frame_rate = frame_rate
         self.resize_wd = resize_wd
@@ -471,6 +695,10 @@ class AllVariables:
         self.draw_color = draw_color
         self.two_pass = two_pass
         self.fill_speed_multiplier = fill_speed_multiplier
+        self.element_mode = element_mode
+        self.white_gap_threshold = white_gap_threshold
+        self.element_sort_direction = element_sort_direction
+        self.end_color = end_color
 
 def common_divisors(num1, num2):
     """
@@ -547,6 +775,7 @@ def ffmpeg_convert(source_vid, dest_vid, platform="linux"):
 def initiate_sketch(
         image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path=save_path,
         which_platform="linux", end_color=True, draw_color=False, two_pass=False, h264_convert=True, fill_speed_multiplier=5,
+        element_mode=False, white_gap_threshold=10, element_sort_direction="right-top",
         progress_callback=None):
 #    print(image_path, split_len, frame_rate, object_skip_rate, bg_object_skip_rate, main_img_duration, callback, save_path)
     
@@ -599,7 +828,11 @@ def initiate_sketch(
             end_gray_img_duration_in_sec=main_img_duration,
             draw_color=draw_color,
             two_pass=two_pass,
-            fill_speed_multiplier=fill_speed_multiplier
+            fill_speed_multiplier=fill_speed_multiplier,
+            element_mode=element_mode,
+            white_gap_threshold=white_gap_threshold,
+            element_sort_direction=element_sort_direction,
+            end_color=end_color,
         )
 
         # invoking the drawing function
@@ -632,7 +865,11 @@ def initiate_sketch(
         print(f"Error in initiate_sketch: {e}")
         final_result = {"status": False, "message": f"Error: {e}"}
     
-    Clock.schedule_once(lambda dt: callback(final_result))
+    # Call callback - use Clock if available (GUI mode), otherwise call directly (CLI mode)
+    if KIVY_AVAILABLE and Clock:
+        Clock.schedule_once(lambda dt: callback(final_result))
+    else:
+        callback(final_result["status"], final_result["message"])
 
 def get_split_lens(image_path):
     """ Get image width & height. If the resolution is not standard & split length is not a common divisor, get the nearest standard resolution """

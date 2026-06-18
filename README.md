@@ -102,12 +102,26 @@ A `Python` virtual environment is recommended ...
 # install pyinstaller
 pip install pyinstaller
 
-# generate the spec file <<OPTIONAL>>
-pyinstaller --name "dlDesktop" --windowed --onefile main.py # optional as it is already created in the repo
+# Build GUI version (with graphical interface)
+cd kivy
+pyinstaller dlDesktop.spec --clean
 
-# then update the spec file as needed
-# then build your app which will be native to the OS i.e. Linux or Windows or MAC
-pyinstaller dlDesktop.spec
+# OR Build CLI version (command-line only, smaller size)
+cd kivy
+pyinstaller cli.spec --clean
+
+# Outputs:
+# - dist/Img2Sketch.exe (GUI, ~150-200 MB)
+# - dist/Img2Sketch-CLI.exe (CLI, ~50-80 MB)
+```
+
+**CLI Usage Example**:
+```bash
+# After building CLI version
+.\dist\Img2Sketch-CLI.exe -i photo.jpg -o ./output -slr 10-40 -fr 30 -dc
+
+# See full CLI documentation
+See kivy/CLI_USAGE_AR.md for complete guide
 ```
 
 #### Build Windows exe from Linux

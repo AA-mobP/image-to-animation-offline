@@ -245,6 +245,40 @@ MDScreen:
                     mode: "rectangle"
                     size_hint_x: 0.33
                     font_size: sp(14)
+                
+                # fifth row - Element Mode controls
+                MDLabel:
+                    text: "White Gap"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.33
+
+                MDLabel:
+                    text: "Element Sort"
+                    font_style: 'Caption'
+                    adaptive_height: True
+                    size_hint_x: 0.66
+                
+                # sixth row
+                MDTextField:
+                    id: white_gap
+                    text: "10"
+                    input_filter: 'int'
+                    max_text_length: 2
+                    hint_text: "gap px"
+                    helper_text: "def: 10"
+                    helper_text_mode: "on_focus"
+                    mode: "rectangle"
+                    size_hint_x: 0.33
+                    font_size: sp(14)
+                
+                MDDropDownItem:
+                    id: element_sort_drp
+                    md_bg_color: "#bdc6b0"
+                    on_release: app.element_sort_options.caller = self; app.element_sort_options.open()
+                    text: "right-top"
+                    font_size: sp(14)
+                    size_hint_x: 0.66
 
             MyMDDivider:
                 orientation: 'vertical'
@@ -281,6 +315,18 @@ MDScreen:
                     pos_hint: {"center_x": .5, "center_y": .5}
                     size_hint_x: 0.5
                     on_release: app.set_two_pass()
+
+                MDFillRoundFlatIconButton:
+                    id: btn_element_mode
+                    text: "Element"
+                    text_color: 'white'
+                    icon: "toggle-switch-off"
+                    icon_color: "white"
+                    font_size: sp(16)
+                    md_bg_color: 'gray'
+                    pos_hint: {"center_x": .5, "center_y": .5}
+                    size_hint_x: 0.5
+                    on_release: app.set_element_mode()
 
                 MDFillRoundFlatIconButton:
                     id: btn_h264_conv
